@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>ساحة التفويج — الميدان</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0B2545" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="ساحة التفويج" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<style>
+  :root {
+    --navy:#0B2545; --teal:#1C7293; --gold:#E5A823; --ice:#EEF4F8;
+    --green:#27AE60; --red:#C0392B; --purple:#8E44AD;
+    --panel:rgba(11,37,69,0.92);
+    --safe-top: env(safe-area-inset-top, 0);
+    --safe-bot: env(safe-area-inset-bottom, 0);
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; overflow:hidden;
+    font-family:'Tajawal', sans-serif; background:#000; color:var(--ice);
+    overscroll-behavior:none; touch-action:none; }
+  #map { position:absolute; inset:0; }
+
+  /* ───────── Top status pill ───────── */
+  .topbar {
+    position:absolute; top:calc(var(--safe-top) + 10px); left:10px; right:10px;
+    z-index:10; display:flex; gap:8px; align-items:center; pointer-events:none;
+  }
+  .gps-pill {
+    pointer-events:auto;
+    background:var(--panel); backdrop-filter:blur(14px);
+    border:1px solid rgba(229,168,35,0.35); border-radius:999px;
+    padding:8px 14px; font-size:12px; font-weight:700;
+    display:flex; align-items:center; gap:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.4);
+  }
+  .gps-pill .dot {
+    width:10px; height:10px; border-radius:50%;
+    background:#888; box-shadow:0 0 0 0 rgba(39,174,96,0);
+  }
+  .gps-pill.ok .dot { background:var(--green); animation: pulse-dot 2s infinite; }
+  .gps-pill.warn .dot { background:var(--gold); }
+  .gps-pill.err  .dot { background:var(--red); }
+  @keyframes pulse-dot {
+    0%,100% { box-shadow:0 0 0 0 rgba(39,174,96,0.55); }
+    50%     { box-shadow:0 0 0 6px rgba(39,174,96,0); }
+  }
+  .gps-pill .acc { opacity:0.85; font-weight:500; font-size:11px;
+    font-feature-settings:"tnum"; direction:ltr; }
+  .title-pill {
+    pointer-events:auto; margin-right:auto;
+    background:var(--panel); backdrop-filter:blur(14px);
+    border:1px solid rgba(229,168,35,0.25); border-radius:10px;
+    padding:6px 12px; font-size:12px; font-weight:700;
+  }
+  .title-pill .sub { opacity:0.7; font-size:10px; font-weight:500; }
+
+  /* ───────── FAB rail (right side, thumb-reachable) ───────── */
+  .fabs {
+    position:absolute; left:14px; bottom:calc(var(--safe-bot) + 90px);
+    z-index:10; display:flex; flex-direction:column; gap:10px;
+  }
+  .fab {
+    width:52px; height:52px; border-radius:50%;
+    background:var(--panel); backdrop-filter:blur(14px);
+    border:1px solid rgba(229,168,35,0.4); color:var(--ice);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 18px rgba(0,0,0,0.5);
+    cursor:pointer; padding:0;
+    font-family:inherit;
+  }
+  .fab:active { transform:scale(0.92); }
+  .fab.active { background:var(--gold); color:var(--navy); border-color:var(--gold); }
+  .fab.recording { background:var(--red); border-color:var(--red); color:#fff;
+    animation: pulse-rec 1.4s infinite; }
+  @keyframes pulse-rec {
+    0%,100% { box-shadow:0 0 0 0 rgba(192,57,43,0.6); }
+    50%     { box-shadow:0 0 0 10px rgba(192,57,43,0); }
+  }
+  .fab svg { width:24px; height:24px; stroke:currentColor; fill:none;
+    stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ───────── Bottom sheet ───────── */
+  .sheet {
+    position:absolute; left:0; right:0; bottom:0;
+    z-index:9; padding:14px 14px calc(var(--safe-bot) + 14px);
+    background:linear-gradient(180deg, transparent 0%, rgba(11,37,69,0.92) 30%);
+    pointer-events:none;
+    transition: transform 0.25s ease;
+  }
+  .sheet.hidden { transform:translateY(110%); }
+  .sheet .card {
+    pointer-events:auto;
+    background:var(--panel); backdrop-filter:blur(18px);
+    border:1px solid rgba(229,168,35,0.4); border-radius:16px;
+    padding:14px 16px; box-shadow:0 -8px 30px rgba(0,0,0,0.6);
+  }
+  .sheet h3 {
+    margin:0 0 6px; font-size:13px; font-weight:700;
+    color:var(--gold); letter-spacing:0.3px;
+  }
+  .sheet .big {
+    font-size:30px; font-weight:900; color:var(--ice);
+    font-feature-settings:"tnum"; direction:ltr; line-height:1.1;
+    margin:4px 0;
+  }
+  .sheet .big .unit { font-size:14px; opacity:0.7; font-weight:500; margin-right:4px; }
+  .sheet .row-stats { display:flex; gap:14px; flex-wrap:wrap; margin:6px 0; }
+  .sheet .row-stats .s { font-size:11px; opacity:0.85; }
+  .sheet .row-stats .s b { color:var(--gold); font-weight:900;
+    font-feature-settings:"tnum"; direction:ltr; }
+  .sheet .actions { display:flex; gap:8px; margin-top:10px; }
+  .sheet .actions button {
+    flex:1; padding:10px; font-size:12px; font-family:inherit; font-weight:700;
+    background:transparent; color:var(--ice);
+    border:1px solid rgba(255,255,255,0.25); border-radius:8px; cursor:pointer;
+  }
+  .sheet .actions button.primary {
+    background:var(--gold); color:var(--navy); border-color:var(--gold);
+  }
+  .sheet .actions button.danger {
+    background:transparent; color:#ff8b80; border-color:rgba(255,90,90,0.4);
+  }
+  .sheet .hint { font-size:11px; opacity:0.7; line-height:1.5; margin-top:4px; }
+
+  /* Nearest list */
+  .near-list { max-height:42vh; overflow-y:auto; margin:8px -4px 0; padding:0 4px;
+    -webkit-overflow-scrolling:touch; }
+  .near-row {
+    display:flex; align-items:center; gap:10px; padding:10px 8px; margin:4px 0;
+    background:rgba(255,255,255,0.04); border-radius:10px;
+    border:1px solid rgba(255,255,255,0.08); cursor:pointer;
+  }
+  .near-row:active { background:rgba(229,168,35,0.18); }
+  .near-row .ico {
+    width:30px; height:30px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:900; color:#fff;
+    flex-shrink:0;
+  }
+  .near-row .name { flex:1; font-size:13px; font-weight:700; }
+  .near-row .name .kind { font-size:10px; opacity:0.6; font-weight:500; }
+  .near-row .dist { font-size:14px; font-weight:900; color:var(--gold);
+    font-feature-settings:"tnum"; direction:ltr; }
+
+  /* Layer sheet */
+  .layer-row {
+    display:flex; align-items:center; gap:10px; padding:8px 4px;
+    font-size:13px; cursor:pointer;
+  }
+  .layer-row input { accent-color:var(--gold); width:18px; height:18px; }
+  .layer-row .sw { width:14px; height:14px; border-radius:3px;
+    border:1px solid rgba(255,255,255,0.2); flex-shrink:0; }
+
+  /* GPS marker (custom — bigger than maplibre default for fingertip visibility) */
+  .me-pin {
+    width:24px; height:24px; border-radius:50%;
+    background:#2E86DE; border:3px solid #fff;
+    box-shadow:0 0 0 6px rgba(46,134,222,0.25), 0 4px 14px rgba(0,0,0,0.6);
+  }
+
+  /* Ghost target pin (for measure mode) */
+  .target-pin {
+    width:16px; height:16px; border-radius:50%;
+    background:var(--gold); border:3px solid var(--navy);
+    box-shadow:0 3px 10px rgba(0,0,0,0.6);
+  }
+
+  /* Landmark / text labels (read-only here) */
+  .lm-pin {
+    display:flex; flex-direction:column; align-items:center; pointer-events:none;
+  }
+  .lm-pin .body {
+    width:24px; height:24px; border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    border:2px solid #0B2545; box-shadow:0 3px 8px rgba(0,0,0,0.5);
+  }
+  .lm-pin .lbl {
+    margin-top:2px; padding:1px 7px; background:rgba(11,37,69,0.92);
+    border:1px solid rgba(229,168,35,0.45); color:var(--ice);
+    border-radius:4px; font-size:10px; font-weight:700; white-space:nowrap;
+  }
+  .text-label {
+    padding:3px 9px; border-radius:5px; color:#fff;
+    font-family:'Tajawal', sans-serif; font-size:11px; font-weight:700;
+    border:1.5px solid rgba(0,0,0,0.4); box-shadow:0 2px 5px rgba(0,0,0,0.45);
+    user-select:none; white-space:nowrap; pointer-events:none;
+  }
+
+  /* Crosshair cursor when measuring */
+  #map.measuring { cursor:crosshair; }
+  #map.measuring .maplibregl-canvas { cursor:crosshair !important; }
+
+  /* Hide MapLibre default attribution control on small screens to free space */
+  .maplibregl-ctrl-attrib { font-size:9px; opacity:0.55; }
+  .maplibregl-ctrl-bottom-right { z-index:1; }
+
+  /* Toast */
+  .toast {
+    position:absolute; bottom:calc(var(--safe-bot) + 100px); left:50%;
+    transform:translateX(-50%); z-index:20;
+    background:rgba(0,0,0,0.85); color:#fff;
+    padding:10px 16px; border-radius:8px; font-size:12px;
+    border:1px solid var(--gold);
+    pointer-events:none; opacity:0; transition:opacity 0.25s;
+    max-width:80vw; text-align:center;
+  }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="topbar">
+  <div class="gps-pill" id="gps-pill">
+    <span class="dot"></span>
+    <span id="gps-text">في انتظار GPS…</span>
+    <span class="acc" id="gps-acc"></span>
+  </div>
+  <div class="title-pill">
+    ساحة التفويج
+    <div class="sub">جدة الإسلامي</div>
+  </div>
+</div>
+
+<div class="fabs">
+  <button class="fab" id="fab-locate" title="موقعي">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+  </button>
+  <button class="fab" id="fab-measure" title="قياس من موقعي">
+    <svg viewBox="0 0 24 24"><path d="M3.27 6.96 12 12.01l8.73-5.05"/><path d="m21 7-9 5-9-5 9-5z"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+  </button>
+  <button class="fab" id="fab-trace" title="تتبع المسار">
+    <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h6a4 4 0 0 1 0 8h-4a4 4 0 0 0 0 8h6"/></svg>
+  </button>
+  <button class="fab" id="fab-near" title="الأقرب إليّ">
+    <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+  </button>
+  <button class="fab" id="fab-layers" title="الطبقات">
+    <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+  </button>
+</div>
+
+<div class="sheet hidden" id="sheet">
+  <div class="card" id="sheet-card"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ====================== Georef (baked from v9.html, v10 CAD 2026-04-21) ======================
+const GEOREF = {
+  corners: {
+    TL:[39.1799133, 21.4705581],
+    TR:[39.1979073, 21.4705489],
+    BR:[39.1974703, 21.4588940],
+    BL:[39.1794763, 21.4589031]
+  }
+};
+const CENTER = [
+  (GEOREF.corners.TL[0] + GEOREF.corners.BR[0]) / 2,
+  (GEOREF.corners.TL[1] + GEOREF.corners.BR[1]) / 2
+];
+const CAD_CORNERS = [GEOREF.corners.TL, GEOREF.corners.TR, GEOREF.corners.BR, GEOREF.corners.BL];
+const M_LAT = 110574;
+const M_LNG = 111320 * Math.cos(CENTER[1] * Math.PI / 180);
+
+// ====================== Defaults (used if v9 localStorage is empty on a fresh phone) ======================
+const LANDMARK_FALLBACK = {
+  'gate-4':            { label:'بوابة ٤ (الميناء)',   color:'#C0392B', icon:'٤', kind:'بوابة',  pos:[39.173547, 21.469032] },
+  'gate-9':            { label:'بوابة ٩ (الميناء)',   color:'#1C7293', icon:'٩', kind:'بوابة',  pos:[39.176265, 21.448207] },
+  'exit-g4-main':      { label:'مخرج ب٤ — رئيسي',   color:'#27AE60', icon:'M', kind:'مخرج',   pos:[39.180931, 21.463703] },
+  'exit-g4-express':   { label:'مخرج ب٤ — سريع',    color:'#8E44AD', icon:'X', kind:'مخرج',   pos:[39.184338, 21.460036] },
+  'exit-g4-emergency': { label:'مخرج ب٤ — طوارئ',   color:'#C0392B', icon:'!', kind:'مخرج',   pos:[39.180877, 21.463300] },
+  'exit-g9-main':      { label:'مخرج ب٩ — رئيسي',   color:'#27AE60', icon:'M', kind:'مخرج',   pos:[39.188810, 21.459660] },
+  'exit-g9-express':   { label:'مخرج ب٩ — سريع',    color:'#8E44AD', icon:'X', kind:'مخرج',   pos:[39.184971, 21.459938] },
+  'exit-g9-emergency': { label:'مخرج ب٩ — طوارئ',   color:'#C0392B', icon:'!', kind:'مخرج',   pos:[39.190120, 21.459621] }
+};
+const TEXT_FALLBACK = [
+  { id:'Tmo790cso', text:'Zone 9-C', color:'#8E44AD', pos:[39.188910, 21.462874], kind:'منطقة' },
+  { id:'Tmo790sfx', text:'Zone 9-B', color:'#8E44AD', pos:[39.188897, 21.461933], kind:'منطقة' },
+  { id:'Tmo7919w6', text:'Zone 9-A', color:'#8E44AD', pos:[39.188910, 21.460832], kind:'منطقة' },
+  { id:'Tmo7pnqjn', text:'Zone 4-A', color:'#1C7293', pos:[39.183384, 21.463026], kind:'منطقة' },
+  { id:'Tmo7po2kz', text:'Zone 4-B', color:'#1C7293', pos:[39.183357, 21.462125], kind:'منطقة' },
+  { id:'Tmo7pocaz', text:'Zone 4-C', color:'#1C7293', pos:[39.183395, 21.461083], kind:'منطقة' },
+  { id:'Tmo8g1is6', text:'مخرج المواقف', color:'#C0392B', pos:[39.191902, 21.464953], kind:'مرفق' }
+];
+
+function loadLandmarks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('stagingsim.v9.landmarks.v1') || '{}');
+    const out = {};
+    for (const id of Object.keys(LANDMARK_FALLBACK)) {
+      const def = LANDMARK_FALLBACK[id];
+      out[id] = { ...def, pos: raw[id] || def.pos };
+    }
+    return out;
+  } catch { return { ...LANDMARK_FALLBACK }; }
+}
+function loadTexts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('stagingsim.v9.text.v1') || 'null');
+    if (Array.isArray(raw) && raw.length) {
+      return raw.map(t => ({ ...t, kind: t.kind || 'تسمية' }));
+    }
+  } catch {}
+  return TEXT_FALLBACK.map(t => ({ ...t }));
+}
+
+const ZONE_COLORS = {
+  absorption:'#3498DB', anpr:'#8E44AD',
+  'g4-a':'#C0392B','g4-b':'#E67E22','g4-c':'#F39C12',
+  'g9-a':'#1C7293','g9-b':'#16A085','g9-c':'#27AE60',
+  'exit-g4':'#D35400','exit-g9':'#16A085',
+  'way-to-gate-4':'#95A5A6','way-to-gate-9':'#95A5A6'
+};
+
+// ====================== Geometry helpers ======================
+function haversineM(p1, p2) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(p2[1] - p1[1]);
+  const dLng = toRad(p2[0] - p1[0]);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(p1[1])) * Math.cos(toRad(p2[1])) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function fmtM(m) {
+  if (m == null || isNaN(m)) return '—';
+  if (m < 1000) return Math.round(m) + ' م';
+  return (m / 1000).toFixed(2) + ' كم';
+}
+function fmtDur(sec) {
+  if (sec < 60) return Math.round(sec) + ' ث';
+  if (sec < 3600) return Math.floor(sec/60) + ' د ' + Math.round(sec%60) + ' ث';
+  return Math.floor(sec/3600) + ' س ' + Math.floor((sec%3600)/60) + ' د';
+}
+
+// ====================== Map init ======================
+const map = new maplibregl.Map({
+  container:'map',
+  style:{
+    version:8,
+    sources:{
+      sat:{ type:'raster',
+        tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize:256,
+        attribution:'Imagery © Esri, Maxar, Earthstar Geographics' },
+      cad:{ type:'image', url:'data/cad_v10_nobg.png', coordinates:CAD_CORNERS }
+    },
+    layers:[
+      { id:'sat-layer', type:'raster', source:'sat' },
+      { id:'cad-layer', type:'raster', source:'cad', paint:{ 'raster-opacity':0.55 } }
+    ]
+  },
+  center:CENTER, zoom:15.6, pitch:0, bearing:0, maxZoom:20,
+  cooperativeGestures:false
+});
+map.addControl(new maplibregl.NavigationControl({ visualizePitch:false, showCompass:true }), 'bottom-right');
+
+// ====================== State ======================
+let ALL_LANES = [];
+let LANDMARKS = loadLandmarks();
+let TEXTS = loadTexts();
+
+let currentPos = null;
+let currentAcc = null;
+let currentHeading = null;
+
+let mode = 'idle';
+let measureTarget = null;
+let measureLabel = null;
+
+let trail = [];
+let traceActive = false;
+let traceStartedAt = null;
+let traceTotalM = 0;
+let wakeLock = null;
+
+const TRAIL_KEY = 'stagingsim.mobile.trail.v1';
+try { const saved = JSON.parse(localStorage.getItem(TRAIL_KEY) || 'null');
+      if (Array.isArray(saved)) trail = saved; } catch {}
+function saveTrail() { try { localStorage.setItem(TRAIL_KEY, JSON.stringify(trail.slice(-2000))); } catch {} }
+
+const LAYERS_KEY = 'stagingsim.mobile.layers.v1';
+const layerState = Object.assign(
+  { sat:true, cad:true, lanes:true, labels:true },
+  JSON.parse(localStorage.getItem(LAYERS_KEY) || '{}')
+);
+function saveLayerState() { localStorage.setItem(LAYERS_KEY, JSON.stringify(layerState)); }
+
+// ====================== Toast ======================
+let toastTimer = null;
+function toast(msg, ms=2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// ====================== Map setup on load ======================
+map.on('load', async () => {
+  map.addSource('lanes', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  map.addSource('measure-line', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  map.addSource('trail', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  map.addSource('me-acc', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+
+  map.addLayer({
+    id:'lanes-line', type:'line', source:'lanes',
+    paint:{
+      'line-color':['get','color'], 'line-opacity':0.78,
+      'line-width':[
+        'interpolate', ['exponential', 2], ['zoom'],
+        14, ['*', ['get','width_m'], 0.3],
+        18, ['*', ['get','width_m'], 4.5],
+        21, ['*', ['get','width_m'], 34]
+      ]
+    }
+  });
+  map.addLayer({
+    id:'trail-line', type:'line', source:'trail',
+    paint:{ 'line-color':'#2E86DE', 'line-width':4, 'line-opacity':0.85 }
+  });
+  map.addLayer({
+    id:'me-acc-fill', type:'fill', source:'me-acc',
+    paint:{ 'fill-color':'#2E86DE', 'fill-opacity':0.12 }
+  });
+  map.addLayer({
+    id:'me-acc-line', type:'line', source:'me-acc',
+    paint:{ 'line-color':'#2E86DE', 'line-opacity':0.45, 'line-width':1.5 }
+  });
+  map.addLayer({
+    id:'measure-line-line', type:'line', source:'measure-line',
+    paint:{ 'line-color':'#E5A823', 'line-width':3, 'line-dasharray':[2, 2], 'line-opacity':0.95 }
+  });
+
+  try {
+    const res = await fetch('data/lanes_v9_all.json', { cache:'no-store' });
+    const data = await res.json();
+    ALL_LANES = data.lanes || [];
+    map.getSource('lanes').setData({
+      type:'FeatureCollection',
+      features: ALL_LANES.map(L => ({
+        type:'Feature',
+        properties:{
+          id:L.id, zone:L.zone,
+          width_m:L.width_m || 5,
+          color: ZONE_COLORS[L.zone] || '#E5A823'
+        },
+        geometry:{ type:'LineString', coordinates: L.coords }
+      }))
+    });
+  } catch (err) { console.warn('lanes_v9_all.json:', err); }
+
+  renderLandmarks();
+  renderTextLabels();
+  applyLayerVisibility();
+  redrawTrail();
+  startTracking({ recenter:true });
+});
+
+// ====================== Landmark + text label markers ======================
+const lmMarkers = {};
+function renderLandmarks() {
+  for (const id of Object.keys(LANDMARKS)) {
+    const lm = LANDMARKS[id];
+    if (!lm.pos) continue;
+    if (lmMarkers[id]) { lmMarkers[id].remove(); delete lmMarkers[id]; }
+    const wrap = document.createElement('div');
+    wrap.className = 'lm-pin';
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.style.background = lm.color;
+    const lbl = document.createElement('div');
+    lbl.className = 'lbl';
+    lbl.textContent = lm.label;
+    wrap.appendChild(body); wrap.appendChild(lbl);
+    lmMarkers[id] = new maplibregl.Marker({ element: wrap, anchor:'bottom' })
+      .setLngLat(lm.pos).addTo(map);
+  }
+}
+const txMarkers = [];
+function renderTextLabels() {
+  for (const m of txMarkers) m.remove();
+  txMarkers.length = 0;
+  for (const t of TEXTS) {
+    if (!t.pos) continue;
+    const el = document.createElement('div');
+    el.className = 'text-label';
+    el.textContent = t.text;
+    if (t.color) el.style.background = t.color;
+    txMarkers.push(new maplibregl.Marker({ element: el, anchor:'center' })
+      .setLngLat(t.pos).addTo(map));
+  }
+}
+
+// ====================== Layer visibility ======================
+function applyLayerVisibility() {
+  if (map.getLayer('sat-layer'))    map.setLayoutProperty('sat-layer',   'visibility', layerState.sat   ? 'visible':'none');
+  if (map.getLayer('cad-layer'))    map.setLayoutProperty('cad-layer',   'visibility', layerState.cad   ? 'visible':'none');
+  if (map.getLayer('lanes-line'))   map.setLayoutProperty('lanes-line',  'visibility', layerState.lanes ? 'visible':'none');
+  const showLabels = layerState.labels;
+  for (const id of Object.keys(lmMarkers)) lmMarkers[id].getElement().style.display = showLabels ? '' : 'none';
+  for (const m of txMarkers) m.getElement().style.display = showLabels ? '' : 'none';
+}
+
+// ====================== Me-pin ======================
+let meMarker = null;
+function renderMePin(pos, headingDeg) {
+  if (!meMarker) {
+    const el = document.createElement('div');
+    el.className = 'me-pin';
+    meMarker = new maplibregl.Marker({ element: el, anchor:'center' })
+      .setLngLat(pos).addTo(map);
+  } else {
+    meMarker.setLngLat(pos);
+  }
+  if (typeof headingDeg === 'number' && !isNaN(headingDeg)) {
+    meMarker.setRotation(headingDeg);
+    meMarker.setRotationAlignment('map');
+  }
+}
+function renderAccuracyCircle(pos, accM) {
+  if (!pos || !accM) {
+    map.getSource('me-acc')?.setData({ type:'FeatureCollection', features:[] });
+    return;
+  }
+  const N = 64;
+  const lat = pos[1];
+  const mLng = 111320 * Math.cos(lat * Math.PI / 180);
+  const rLngDeg = accM / mLng, rLatDeg = accM / M_LAT;
+  const coords = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N * 2 * Math.PI;
+    coords.push([ pos[0] + Math.cos(t) * rLngDeg, pos[1] + Math.sin(t) * rLatDeg ]);
+  }
+  map.getSource('me-acc').setData({
+    type:'FeatureCollection',
+    features:[{ type:'Feature', properties:{}, geometry:{ type:'Polygon', coordinates:[ coords ] } }]
+  });
+}
+
+// ====================== Geolocation watcher ======================
+let watchId = null;
+let firstFix = true;
+function startTracking({ recenter=false } = {}) {
+  if (!('geolocation' in navigator)) {
+    setGpsPill('err', 'GPS غير مدعوم على هذا المتصفح');
+    return;
+  }
+  if (watchId != null) return;
+  setGpsPill('warn', 'في انتظار GPS…');
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      const ll = [pos.coords.longitude, pos.coords.latitude];
+      currentPos = ll;
+      currentAcc = pos.coords.accuracy;
+      currentHeading = (typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading))
+        ? pos.coords.heading : null;
+      renderMePin(ll, currentHeading);
+      renderAccuracyCircle(ll, currentAcc);
+      setGpsPill('ok', 'GPS مفعّل', `±${Math.round(currentAcc)}م`);
+      if (firstFix && recenter) {
+        firstFix = false;
+        map.flyTo({ center:ll, zoom: Math.max(map.getZoom(), 17), duration:900, essential:true });
+      }
+      if (traceActive) {
+        const last = trail[trail.length - 1];
+        const stepM = last ? haversineM(last.pos, ll) : Infinity;
+        if (stepM >= 2 || !last) {
+          trail.push({ pos: ll, t: Date.now() });
+          if (last) traceTotalM += stepM;
+          saveTrail();
+          redrawTrail();
+          updateSheetIfMode('trace');
+        }
+      }
+      if (mode === 'measure' && measureTarget) updateMeasure();
+      if (mode === 'near') renderSheet();
+    },
+    err => {
+      const txt = err.code === err.PERMISSION_DENIED
+        ? 'صلاحية الموقع مرفوضة'
+        : err.code === err.POSITION_UNAVAILABLE
+          ? 'الموقع غير متاح'
+          : err.code === err.TIMEOUT ? 'انتهت مهلة GPS' : 'تعذّر تحديد الموقع';
+      setGpsPill('err', txt);
+      toast(txt + ' — افتح إعدادات المتصفح وامنح الصلاحية');
+    },
+    { enableHighAccuracy:true, maximumAge:1500, timeout:20000 }
+  );
+}
+
+function setGpsPill(kind, text, acc='') {
+  const pill = document.getElementById('gps-pill');
+  pill.classList.remove('ok','warn','err');
+  pill.classList.add(kind);
+  document.getElementById('gps-text').textContent = text;
+  document.getElementById('gps-acc').textContent = acc;
+}
+
+// ====================== Trail rendering ======================
+function redrawTrail() {
+  const src = map.getSource('trail');
+  if (!src) return;
+  if (trail.length < 2) { src.setData({ type:'FeatureCollection', features:[] }); return; }
+  src.setData({
+    type:'FeatureCollection',
+    features:[{
+      type:'Feature', properties:{},
+      geometry:{ type:'LineString', coordinates: trail.map(p => p.pos) }
+    }]
+  });
+}
+function clearTrail() {
+  trail = [];
+  traceTotalM = 0;
+  traceStartedAt = traceActive ? Date.now() : null;
+  saveTrail();
+  redrawTrail();
+}
+
+// ====================== Wake lock ======================
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    }
+  } catch (e) {}
+}
+async function releaseWakeLock() {
+  try { if (wakeLock) await wakeLock.release(); } catch {} finally { wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && traceActive && !wakeLock) requestWakeLock();
+});
+
+// ====================== Mode + sheet rendering ======================
+function setMode(next) {
+  if (mode === next) next = 'idle';
+  mode = next;
+
+  document.querySelectorAll('.fab').forEach(b => b.classList.remove('active'));
+  if (mode === 'measure') document.getElementById('fab-measure').classList.add('active');
+  if (mode === 'near')    document.getElementById('fab-near').classList.add('active');
+  if (mode === 'layers')  document.getElementById('fab-layers').classList.add('active');
+
+  document.getElementById('map').classList.toggle('measuring', mode === 'measure');
+  if (mode !== 'measure') { measureTarget = null; updateMeasure(); }
+
+  renderSheet();
+}
+
+function renderSheet() {
+  const sheet = document.getElementById('sheet');
+  const card = document.getElementById('sheet-card');
+  while (card.firstChild) card.removeChild(card.firstChild);
+
+  if (mode === 'idle') { sheet.classList.add('hidden'); return; }
+  sheet.classList.remove('hidden');
+
+  if (mode === 'measure') return renderSheetMeasure(card);
+  if (mode === 'trace')   return renderSheetTrace(card);
+  if (mode === 'near')    return renderSheetNear(card);
+  if (mode === 'layers')  return renderSheetLayers(card);
+}
+function updateSheetIfMode(m) { if (mode === m) renderSheet(); }
+
+// ───── Measure sheet ─────
+function renderSheetMeasure(card) {
+  const h = document.createElement('h3'); h.textContent = 'قياس من موقعي';
+  card.appendChild(h);
+  if (!currentPos) {
+    const p = document.createElement('div'); p.className = 'hint';
+    p.textContent = 'لا يوجد موقع GPS بعد. تأكد من تفعيل صلاحية الموقع.';
+    card.appendChild(p);
+    return;
+  }
+  if (!measureTarget) {
+    const p = document.createElement('div'); p.className = 'hint';
+    p.textContent = 'اضغط على أي نقطة على الخريطة لقياس المسافة من موقعك إليها.';
+    card.appendChild(p);
+    return;
+  }
+  const d = haversineM(currentPos, measureTarget);
+  const big = document.createElement('div'); big.className = 'big';
+  big.appendChild(document.createTextNode(fmtM(d).replace(/[^\d.]/g,'')));
+  const u = document.createElement('span'); u.className = 'unit';
+  u.textContent = d < 1000 ? 'متر' : 'كم';
+  big.appendChild(u);
+  card.appendChild(big);
+
+  if (measureLabel) {
+    const lbl = document.createElement('div'); lbl.className = 'hint';
+    lbl.textContent = 'إلى: ' + measureLabel;
+    card.appendChild(lbl);
+  }
+  const acc = document.createElement('div'); acc.className = 'hint';
+  acc.textContent = `دقة GPS: ±${Math.round(currentAcc || 0)}م`;
+  card.appendChild(acc);
+
+  const actions = document.createElement('div'); actions.className = 'actions';
+  const clear = document.createElement('button');
+  clear.textContent = 'مسح';
+  clear.onclick = () => { measureTarget = null; measureLabel = null; updateMeasure(); renderSheet(); };
+  actions.appendChild(clear);
+  card.appendChild(actions);
+}
+
+function updateMeasure() {
+  const src = map.getSource('measure-line');
+  if (!src) return;
+  if (!currentPos || !measureTarget) {
+    src.setData({ type:'FeatureCollection', features:[] });
+    if (updateMeasure._target) updateMeasure._target.remove();
+    return;
+  }
+  src.setData({
+    type:'FeatureCollection',
+    features:[
+      { type:'Feature', properties:{}, geometry:{ type:'LineString', coordinates:[ currentPos, measureTarget ] } }
+    ]
+  });
+  if (!updateMeasure._target) {
+    const el = document.createElement('div');
+    el.className = 'target-pin';
+    updateMeasure._target = new maplibregl.Marker({ element: el, anchor:'center' });
+  }
+  updateMeasure._target.setLngLat(measureTarget).addTo(map);
+}
+
+// ───── Trace sheet ─────
+function renderSheetTrace(card) {
+  const h = document.createElement('h3');
+  h.textContent = traceActive ? 'جاري التسجيل…' : 'تتبع المسار';
+  card.appendChild(h);
+
+  const big = document.createElement('div'); big.className = 'big';
+  big.appendChild(document.createTextNode(fmtM(traceTotalM).replace(/[^\d.]/g,'')));
+  const u = document.createElement('span'); u.className = 'unit';
+  u.textContent = traceTotalM < 1000 ? 'متر' : 'كم';
+  big.appendChild(u);
+  card.appendChild(big);
+
+  const dur = traceStartedAt ? (Date.now() - traceStartedAt) / 1000 : 0;
+  const stats = document.createElement('div'); stats.className = 'row-stats';
+  const s1 = document.createElement('div'); s1.className = 's';
+  s1.appendChild(document.createTextNode('المدة: '));
+  const b1 = document.createElement('b'); b1.textContent = fmtDur(dur); s1.appendChild(b1);
+  const s2 = document.createElement('div'); s2.className = 's';
+  s2.appendChild(document.createTextNode('النقاط: '));
+  const b2 = document.createElement('b'); b2.textContent = String(trail.length); s2.appendChild(b2);
+  stats.appendChild(s1); stats.appendChild(s2);
+  card.appendChild(stats);
+
+  const actions = document.createElement('div'); actions.className = 'actions';
+  const toggle = document.createElement('button');
+  toggle.className = traceActive ? 'danger' : 'primary';
+  toggle.textContent = traceActive ? 'إيقاف' : 'بدء التسجيل';
+  toggle.onclick = () => traceActive ? stopTrace() : startTrace();
+  actions.appendChild(toggle);
+
+  if (trail.length) {
+    const clear = document.createElement('button');
+    clear.textContent = 'مسح المسار';
+    clear.onclick = () => { if (confirm('مسح المسار المسجّل؟')) { clearTrail(); renderSheet(); } };
+    actions.appendChild(clear);
+  }
+  card.appendChild(actions);
+
+  if (!currentPos) {
+    const hint = document.createElement('div'); hint.className = 'hint';
+    hint.textContent = 'في انتظار GPS… سيبدأ التسجيل عند توفر الموقع.';
+    card.appendChild(hint);
+  }
+}
+function startTrace() {
+  traceActive = true;
+  traceStartedAt = Date.now();
+  traceTotalM = 0;
+  trail = [];
+  saveTrail();
+  redrawTrail();
+  requestWakeLock();
+  document.getElementById('fab-trace').classList.add('recording');
+  toast('بدأ تسجيل المسار — أبقِ الشاشة مفتوحة');
+  renderSheet();
+}
+function stopTrace() {
+  traceActive = false;
+  releaseWakeLock();
+  document.getElementById('fab-trace').classList.remove('recording');
+  toast('تم إيقاف التسجيل');
+  renderSheet();
+}
+
+// ───── Nearest sheet ─────
+function nearestList() {
+  const items = [];
+  for (const id of Object.keys(LANDMARKS)) {
+    const lm = LANDMARKS[id];
+    if (!lm.pos) continue;
+    items.push({ id, name:lm.label, kind:lm.kind, color:lm.color, icon:lm.icon, pos:lm.pos });
+  }
+  for (const t of TEXTS) {
+    items.push({ id:t.id, name:t.text, kind:t.kind || 'تسمية', color:t.color || '#1C7293', icon:'•', pos:t.pos });
+  }
+  if (currentPos) {
+    for (const it of items) it.dist = haversineM(currentPos, it.pos);
+    items.sort((a,b) => a.dist - b.dist);
+  }
+  return items;
+}
+function renderSheetNear(card) {
+  const h = document.createElement('h3'); h.textContent = 'الأقرب إليّ';
+  card.appendChild(h);
+  if (!currentPos) {
+    const p = document.createElement('div'); p.className = 'hint';
+    p.textContent = 'بانتظار GPS… ستظهر المسافات بمجرد توفر الموقع.';
+    card.appendChild(p);
+    return;
+  }
+  const list = document.createElement('div'); list.className = 'near-list';
+  for (const it of nearestList()) {
+    const row = document.createElement('div'); row.className = 'near-row';
+    const ico = document.createElement('div'); ico.className = 'ico';
+    ico.style.background = it.color; ico.textContent = it.icon || '•';
+    const name = document.createElement('div'); name.className = 'name';
+    name.appendChild(document.createTextNode(it.name));
+    const k = document.createElement('div'); k.className = 'kind'; k.textContent = it.kind;
+    name.appendChild(k);
+    const dist = document.createElement('div'); dist.className = 'dist';
+    dist.textContent = it.dist != null ? fmtM(it.dist) : '—';
+    row.appendChild(ico); row.appendChild(name); row.appendChild(dist);
+    row.onclick = () => {
+      measureTarget = it.pos;
+      measureLabel = it.name;
+      mode = 'measure';
+      document.querySelectorAll('.fab').forEach(b => b.classList.remove('active'));
+      document.getElementById('fab-measure').classList.add('active');
+      updateMeasure();
+      const b = new maplibregl.LngLatBounds().extend(currentPos).extend(it.pos);
+      map.fitBounds(b, { padding:{ top:120, bottom:240, left:60, right:60 }, duration:900, maxZoom:18 });
+      renderSheet();
+    };
+    list.appendChild(row);
+  }
+  card.appendChild(list);
+}
+
+// ───── Layers sheet ─────
+function renderSheetLayers(card) {
+  const h = document.createElement('h3'); h.textContent = 'الطبقات';
+  card.appendChild(h);
+  const items = [
+    { key:'sat',    label:'صورة قمر صناعي' },
+    { key:'cad',    label:'مخطط CAD' },
+    { key:'lanes',  label:'الحارات' },
+    { key:'labels', label:'البوابات والتسميات' }
+  ];
+  for (const it of items) {
+    const row = document.createElement('label'); row.className = 'layer-row';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!layerState[it.key];
+    cb.onchange = () => { layerState[it.key] = cb.checked; saveLayerState(); applyLayerVisibility(); };
+    const sw = document.createElement('div'); sw.className = 'sw';
+    sw.style.background = it.key === 'lanes'
+      ? 'linear-gradient(90deg,#E5A823,#1C7293,#27AE60,#C0392B)'
+      : it.key === 'labels' ? '#E5A823'
+      : it.key === 'cad' ? 'rgba(150,150,150,0.5)' : 'transparent';
+    const lbl = document.createElement('span'); lbl.textContent = it.label;
+    row.appendChild(cb); row.appendChild(sw); row.appendChild(lbl);
+    card.appendChild(row);
+  }
+}
+
+// ====================== Map click → measure target ======================
+map.on('click', (e) => {
+  if (mode !== 'measure') return;
+  measureTarget = [e.lngLat.lng, e.lngLat.lat];
+  measureLabel = null;
+  updateMeasure();
+  renderSheet();
+});
+
+// ====================== FAB wiring ======================
+document.getElementById('fab-locate').addEventListener('click', () => {
+  if (!currentPos) { toast('بانتظار GPS… امنح الصلاحية إن طُلبت'); startTracking({ recenter:true }); return; }
+  map.flyTo({ center: currentPos, zoom: Math.max(map.getZoom(), 17.5), duration:700, essential:true });
+});
+document.getElementById('fab-measure').addEventListener('click', () => setMode('measure'));
+document.getElementById('fab-near').addEventListener('click',    () => setMode('near'));
+document.getElementById('fab-layers').addEventListener('click',  () => setMode('layers'));
+document.getElementById('fab-trace').addEventListener('click', () => {
+  if (mode !== 'trace') setMode('trace');
+  if (!traceActive) startTrace();
+});
+</script>
+</body>
+</html>

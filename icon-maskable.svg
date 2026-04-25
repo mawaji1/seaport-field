@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable icon: keep the meaningful content inside the inner 80% safe zone (51.2px padding on each side) -->
+  <rect width="512" height="512" fill="#0B2545"/>
+  <g transform="translate(0 0)">
+    <!-- Lane bundle, kept within safe area -->
+    <g transform="translate(150 170)">
+      <rect x="0"   y="0" width="32" height="200" rx="5" fill="#E5A823"/>
+      <rect x="44"  y="0" width="32" height="200" rx="5" fill="#1C7293"/>
+      <rect x="88"  y="0" width="32" height="200" rx="5" fill="#E5A823"/>
+      <rect x="132" y="0" width="32" height="200" rx="5" fill="#1C7293"/>
+      <rect x="176" y="0" width="32" height="200" rx="5" fill="#E5A823"/>
+    </g>
+    <!-- Pin -->
+    <g transform="translate(256 380)">
+      <circle cx="0" cy="-100" r="40" fill="rgba(46,134,222,0.30)"/>
+      <path d="M -28 -120 a 28 28 0 1 1 56 0 c 0 22 -28 50 -28 50 c 0 0 -28 -28 -28 -50 z"
+            fill="#E5A823" stroke="#0B2545" stroke-width="5"/>
+      <circle cx="0" cy="-122" r="10" fill="#0B2545"/>
+    </g>
+  </g>
+</svg>
