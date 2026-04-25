@@ -88,8 +88,12 @@
     background:var(--green);
     animation: pulse-dot 2s infinite;
   }
-  .clock-pill .a .letter.late {
-    background:#E67E22;
+  .clock-pill .a .late-time {
+    display:inline-block; padding:0 8px; height:22px;
+    border-radius:11px; background:#E67E22; color:#fff;
+    font-weight:900; line-height:22px;
+    font-size:11px;
+    font-feature-settings:"tnum"; direction:ltr;
   }
   .clock-pill .a .sep { opacity:0.45; margin:0 2px; }
 
@@ -301,7 +305,7 @@
       <span class="letter active" id="clock-active-letter">—</span>
       <span class="sep">·</span>
       <span>متأخر</span>
-      <span class="letter late" id="clock-late-letter">—</span>
+      <span class="late-time" id="clock-late-time">—</span>
     </div>
   </div>
 </div>
@@ -574,7 +578,7 @@ function renderTextLabels() {
     const letter = zoneLetterFromLabel(t.text);
     let el;
     if (letter) {
-      // Zone label: name on top + dynamic schedule badge below
+      // Zone label: name on top, status badge(s) appended by updateZoneStatus
       el = document.createElement('div');
       el.className = 'zone-label';
       el.dataset.zoneLetter = letter;
@@ -582,10 +586,7 @@ function renderTextLabels() {
       name.className = 'name';
       name.textContent = t.text;
       if (t.color) name.style.background = t.color;
-      const status = document.createElement('div');
-      status.className = 'status next';
       el.appendChild(name);
-      el.appendChild(status);
     } else {
       el = document.createElement('div');
       el.className = 'text-label';
@@ -629,43 +630,43 @@ function zoneLetterFromLabel(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
+function makeStatusBadge(cls, text) {
+  const status = document.createElement('div');
+  status.className = 'status ' + cls;
+  const dot = document.createElement('span'); dot.className = 'dot';
+  const txt = document.createElement('span'); txt.textContent = text;
+  status.appendChild(dot);
+  status.appendChild(txt);
+  return status;
+}
+
 function updateZoneStatus() {
   const { hour, minute } = nowInRiyadh();
-  const active     = activeLetterForHour(hour);
-  const lateHour   = (hour - 1 + 24) % 24;          // previous hour, wrapping at midnight
-  const lateLetter = activeLetterForHour(lateHour); // its zone is in 1-hour grace
+  const active   = activeLetterForHour(hour);
+  const lateHour = (hour - 1 + 24) % 24;   // late trucks: previous hour's appointments
 
   const clockNow    = document.getElementById('clock-now');
   const clockActive = document.getElementById('clock-active-letter');
-  const clockLate   = document.getElementById('clock-late-letter');
+  const clockLate   = document.getElementById('clock-late-time');
   if (clockNow)    clockNow.textContent    = `${pad2(hour)}:${pad2(minute)}`;
   if (clockActive) clockActive.textContent = active;
-  if (clockLate)   clockLate.textContent   = lateLetter;
+  if (clockLate)   clockLate.textContent   = `${pad2(lateHour)}:00`;
 
   document.querySelectorAll('.zone-label').forEach(wrap => {
     const letter = wrap.dataset.zoneLetter;
     if (!letter) return;
-    const status = wrap.querySelector('.status');
-    if (!status) return;
-    while (status.firstChild) status.removeChild(status.firstChild);
-    const isReceiving = letter === active;
-    const isLate      = letter === lateLetter;
-    let cls = 'next';
-    if (isReceiving) cls = 'receiving';
-    else if (isLate) cls = 'late';
-    status.className = 'status ' + cls;
-    const dot = document.createElement('span'); dot.className = 'dot';
-    const txt = document.createElement('span');
-    if (isReceiving) {
-      txt.textContent = `يستقبل · ${pad2(hour)}:00`;
-    } else if (isLate) {
-      txt.textContent = `متأخر · ${pad2(lateHour)}:00`;
+    // Rebuild status badges fresh each tick
+    wrap.querySelectorAll('.status').forEach(s => s.remove());
+
+    if (letter === active) {
+      // Active zone takes BOTH on-time (this hour) and late (previous hour)
+      wrap.appendChild(makeStatusBadge('receiving', `يستقبل · ${pad2(hour)}:00`));
+      wrap.appendChild(makeStatusBadge('late',      `متأخر · ${pad2(lateHour)}:00`));
     } else {
       const nextH = nextWindowHour(letter, hour);
-      txt.textContent = nextH != null ? `التالي · ${pad2(nextH)}:00` : '—';
+      wrap.appendChild(makeStatusBadge('next',
+        nextH != null ? `التالي · ${pad2(nextH)}:00` : '—'));
     }
-    status.appendChild(dot);
-    status.appendChild(txt);
   });
 }
 
