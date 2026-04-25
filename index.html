@@ -79,12 +79,19 @@
   }
   .clock-pill .a .letter {
     display:inline-block; min-width:22px; height:22px; padding:0 6px;
-    border-radius:11px; background:var(--green); color:#fff;
+    border-radius:11px; color:#fff;
     font-weight:900; line-height:22px; text-align:center;
     font-size:12px;
     font-feature-settings:"tnum"; direction:ltr;
+  }
+  .clock-pill .a .letter.active {
+    background:var(--green);
     animation: pulse-dot 2s infinite;
   }
+  .clock-pill .a .letter.late {
+    background:#E67E22;
+  }
+  .clock-pill .a .sep { opacity:0.45; margin:0 2px; }
 
   /* ───────── FAB rail (right side, thumb-reachable) ───────── */
   .fabs {
@@ -250,6 +257,12 @@
     background:rgba(11,37,69,0.85); color:var(--ice); opacity:0.92;
   }
   .zone-label .status.next .dot { background:#E5A823; }
+  .zone-label .status.late {
+    background:rgba(230,126,34,0.95); color:#fff;
+  }
+  .zone-label .status.late .dot {
+    background:#fff; animation: pulse-dot 1.6s infinite;
+  }
 
   /* Crosshair cursor when measuring */
   #map.measuring { cursor:crosshair; }
@@ -285,7 +298,10 @@
     <div class="t" id="clock-now">--:--</div>
     <div class="a">
       <span>يستقبل</span>
-      <span class="letter" id="clock-active-letter">—</span>
+      <span class="letter active" id="clock-active-letter">—</span>
+      <span class="sep">·</span>
+      <span>متأخر</span>
+      <span class="letter late" id="clock-late-letter">—</span>
     </div>
   </div>
 </div>
@@ -615,11 +631,16 @@ function zoneLetterFromLabel(text) {
 
 function updateZoneStatus() {
   const { hour, minute } = nowInRiyadh();
-  const active = activeLetterForHour(hour);
-  const clockNow = document.getElementById('clock-now');
-  const clockLetter = document.getElementById('clock-active-letter');
-  if (clockNow) clockNow.textContent = `${pad2(hour)}:${pad2(minute)}`;
-  if (clockLetter) clockLetter.textContent = active;
+  const active     = activeLetterForHour(hour);
+  const lateHour   = (hour - 1 + 24) % 24;          // previous hour, wrapping at midnight
+  const lateLetter = activeLetterForHour(lateHour); // its zone is in 1-hour grace
+
+  const clockNow    = document.getElementById('clock-now');
+  const clockActive = document.getElementById('clock-active-letter');
+  const clockLate   = document.getElementById('clock-late-letter');
+  if (clockNow)    clockNow.textContent    = `${pad2(hour)}:${pad2(minute)}`;
+  if (clockActive) clockActive.textContent = active;
+  if (clockLate)   clockLate.textContent   = lateLetter;
 
   document.querySelectorAll('.zone-label').forEach(wrap => {
     const letter = wrap.dataset.zoneLetter;
@@ -628,11 +649,17 @@ function updateZoneStatus() {
     if (!status) return;
     while (status.firstChild) status.removeChild(status.firstChild);
     const isReceiving = letter === active;
-    status.className = 'status ' + (isReceiving ? 'receiving' : 'next');
+    const isLate      = letter === lateLetter;
+    let cls = 'next';
+    if (isReceiving) cls = 'receiving';
+    else if (isLate) cls = 'late';
+    status.className = 'status ' + cls;
     const dot = document.createElement('span'); dot.className = 'dot';
     const txt = document.createElement('span');
     if (isReceiving) {
       txt.textContent = `يستقبل · ${pad2(hour)}:00`;
+    } else if (isLate) {
+      txt.textContent = `متأخر · ${pad2(lateHour)}:00`;
     } else {
       const nextH = nextWindowHour(letter, hour);
       txt.textContent = nextH != null ? `التالي · ${pad2(nextH)}:00` : '—';
