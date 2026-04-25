@@ -655,6 +655,7 @@ function setMode(next) {
 
   document.querySelectorAll('.fab').forEach(b => b.classList.remove('active'));
   if (mode === 'measure') document.getElementById('fab-measure').classList.add('active');
+  if (mode === 'trace')   document.getElementById('fab-trace').classList.add('active');
   if (mode === 'near')    document.getElementById('fab-near').classList.add('active');
   if (mode === 'layers')  document.getElementById('fab-layers').classList.add('active');
 
@@ -903,10 +904,7 @@ document.getElementById('fab-locate').addEventListener('click', () => {
 document.getElementById('fab-measure').addEventListener('click', () => setMode('measure'));
 document.getElementById('fab-near').addEventListener('click',    () => setMode('near'));
 document.getElementById('fab-layers').addEventListener('click',  () => setMode('layers'));
-document.getElementById('fab-trace').addEventListener('click', () => {
-  if (mode !== 'trace') setMode('trace');
-  if (!traceActive) startTrace();
-});
+document.getElementById('fab-trace').addEventListener('click', () => setMode('trace'));
 </script>
 </body>
 </html>
