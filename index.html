@@ -60,13 +60,31 @@
   }
   .gps-pill .acc { opacity:0.85; font-weight:500; font-size:11px;
     font-feature-settings:"tnum"; direction:ltr; }
-  .title-pill {
+  .clock-pill {
     pointer-events:auto; margin-right:auto;
     background:var(--panel); backdrop-filter:blur(14px);
-    border:1px solid rgba(229,168,35,0.25); border-radius:10px;
-    padding:6px 12px; font-size:12px; font-weight:700;
+    border:1px solid rgba(229,168,35,0.35); border-radius:14px;
+    padding:6px 12px;
+    display:flex; align-items:center; gap:10px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.4);
   }
-  .title-pill .sub { opacity:0.7; font-size:10px; font-weight:500; }
+  .clock-pill .t {
+    font-feature-settings:"tnum"; direction:ltr;
+    font-size:18px; font-weight:900; line-height:1;
+    color:var(--ice);
+  }
+  .clock-pill .a {
+    display:flex; align-items:center; gap:6px;
+    font-size:11px; font-weight:600;
+  }
+  .clock-pill .a .letter {
+    display:inline-block; min-width:22px; height:22px; padding:0 6px;
+    border-radius:11px; background:var(--green); color:#fff;
+    font-weight:900; line-height:22px; text-align:center;
+    font-size:12px;
+    font-feature-settings:"tnum"; direction:ltr;
+    animation: pulse-dot 2s infinite;
+  }
 
   /* ───────── FAB rail (right side, thumb-reachable) ───────── */
   .fabs {
@@ -201,6 +219,38 @@
     user-select:none; white-space:nowrap; pointer-events:none;
   }
 
+  /* Zone label = name on top, schedule status badge below */
+  .zone-label {
+    display:flex; flex-direction:column; align-items:center;
+    pointer-events:none; user-select:none;
+  }
+  .zone-label .name {
+    padding:3px 9px; border-radius:5px; color:#fff;
+    font-family:'Tajawal', sans-serif; font-size:11px; font-weight:700;
+    border:1.5px solid rgba(0,0,0,0.4); box-shadow:0 2px 5px rgba(0,0,0,0.45);
+    white-space:nowrap;
+  }
+  .zone-label .status {
+    margin-top:3px;
+    display:flex; align-items:center; gap:5px;
+    font-size:10px; font-weight:700;
+    font-feature-settings:"tnum"; direction:ltr;
+    padding:2px 7px; border-radius:4px; white-space:nowrap;
+    border:1px solid rgba(0,0,0,0.4);
+    box-shadow:0 1px 4px rgba(0,0,0,0.4);
+  }
+  .zone-label .status .dot { width:6px; height:6px; border-radius:50%; }
+  .zone-label .status.receiving {
+    background:rgba(39,174,96,0.95); color:#fff;
+  }
+  .zone-label .status.receiving .dot {
+    background:#fff; animation: pulse-dot 1.6s infinite;
+  }
+  .zone-label .status.next {
+    background:rgba(11,37,69,0.85); color:var(--ice); opacity:0.92;
+  }
+  .zone-label .status.next .dot { background:#E5A823; }
+
   /* Crosshair cursor when measuring */
   #map.measuring { cursor:crosshair; }
   #map.measuring .maplibregl-canvas { cursor:crosshair !important; }
@@ -231,9 +281,12 @@
     <span id="gps-text">في انتظار GPS…</span>
     <span class="acc" id="gps-acc"></span>
   </div>
-  <div class="title-pill">
-    ساحة التفويج
-    <div class="sub">جدة الإسلامي</div>
+  <div class="clock-pill" id="clock-pill">
+    <div class="t" id="clock-now">--:--</div>
+    <div class="a">
+      <span>يستقبل</span>
+      <span class="letter" id="clock-active-letter">—</span>
+    </div>
   </div>
 </div>
 
@@ -502,14 +555,95 @@ function renderTextLabels() {
   txMarkers.length = 0;
   for (const t of TEXTS) {
     if (!t.pos) continue;
-    const el = document.createElement('div');
-    el.className = 'text-label';
-    el.textContent = t.text;
-    if (t.color) el.style.background = t.color;
+    const letter = zoneLetterFromLabel(t.text);
+    let el;
+    if (letter) {
+      // Zone label: name on top + dynamic schedule badge below
+      el = document.createElement('div');
+      el.className = 'zone-label';
+      el.dataset.zoneLetter = letter;
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = t.text;
+      if (t.color) name.style.background = t.color;
+      const status = document.createElement('div');
+      status.className = 'status next';
+      el.appendChild(name);
+      el.appendChild(status);
+    } else {
+      el = document.createElement('div');
+      el.className = 'text-label';
+      el.textContent = t.text;
+      if (t.color) el.style.background = t.color;
+    }
     txMarkers.push(new maplibregl.Marker({ element: el, anchor:'center' })
       .setLngLat(t.pos).addTo(map));
   }
+  updateZoneStatus();
 }
+
+// ====================== Zone rotation schedule (A/B/C = hour mod 3) ======================
+// A: hours where (h % 3) === 2  → 02, 05, 08, 11, 14, 17, 20, 23
+// B: hours where (h % 3) === 0  → 00, 03, 06, 09, 12, 15, 18, 21
+// C: hours where (h % 3) === 1  → 01, 04, 07, 10, 13, 16, 19, 22
+function pad2(n) { return String(n).padStart(2, '0'); }
+function nowInRiyadh() {
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone:'Asia/Riyadh', hour:'2-digit', minute:'2-digit', hour12:false
+  });
+  const parts = fmt.formatToParts(new Date());
+  return {
+    hour:   parseInt(parts.find(p => p.type === 'hour').value, 10),
+    minute: parseInt(parts.find(p => p.type === 'minute').value, 10)
+  };
+}
+function activeLetterForHour(h) {
+  const m = ((h % 3) + 3) % 3;
+  return m === 2 ? 'A' : m === 0 ? 'B' : 'C';
+}
+function nextWindowHour(letter, currentHour) {
+  for (let i = 1; i <= 24; i++) {
+    const h = (currentHour + i) % 24;
+    if (activeLetterForHour(h) === letter) return h;
+  }
+  return null;
+}
+function zoneLetterFromLabel(text) {
+  const m = String(text || '').match(/Zone\s*[49]\s*-\s*([ABC])/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function updateZoneStatus() {
+  const { hour, minute } = nowInRiyadh();
+  const active = activeLetterForHour(hour);
+  const clockNow = document.getElementById('clock-now');
+  const clockLetter = document.getElementById('clock-active-letter');
+  if (clockNow) clockNow.textContent = `${pad2(hour)}:${pad2(minute)}`;
+  if (clockLetter) clockLetter.textContent = active;
+
+  document.querySelectorAll('.zone-label').forEach(wrap => {
+    const letter = wrap.dataset.zoneLetter;
+    if (!letter) return;
+    const status = wrap.querySelector('.status');
+    if (!status) return;
+    while (status.firstChild) status.removeChild(status.firstChild);
+    const isReceiving = letter === active;
+    status.className = 'status ' + (isReceiving ? 'receiving' : 'next');
+    const dot = document.createElement('span'); dot.className = 'dot';
+    const txt = document.createElement('span');
+    if (isReceiving) {
+      txt.textContent = `يستقبل · ${pad2(hour)}:00`;
+    } else {
+      const nextH = nextWindowHour(letter, hour);
+      txt.textContent = nextH != null ? `التالي · ${pad2(nextH)}:00` : '—';
+    }
+    status.appendChild(dot);
+    status.appendChild(txt);
+  });
+}
+
+// Tick the clock + recompute zone status every 30s (covers minute rollovers cheaply)
+setInterval(updateZoneStatus, 30 * 1000);
 
 // ====================== Layer visibility ======================
 function applyLayerVisibility() {
