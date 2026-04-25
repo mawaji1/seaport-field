@@ -469,6 +469,7 @@ map.on('load', async () => {
   applyLayerVisibility();
   redrawTrail();
   startTracking({ recenter:true });
+  applyShareParams();
 });
 
 // ====================== Landmark + text label markers ======================
@@ -574,7 +575,13 @@ function startTracking({ recenter=false } = {}) {
       setGpsPill('ok', 'GPS مفعّل', `±${Math.round(currentAcc)}م`);
       if (firstFix && recenter) {
         firstFix = false;
-        map.flyTo({ center:ll, zoom: Math.max(map.getZoom(), 17), duration:900, essential:true });
+        if (measureTarget) {
+          // Frame both me and the shared/measured point at first GPS fix
+          const b = new maplibregl.LngLatBounds().extend(ll).extend(measureTarget);
+          map.fitBounds(b, { padding:{ top:120, bottom:240, left:60, right:60 }, duration:900, maxZoom:18 });
+        } else {
+          map.flyTo({ center:ll, zoom: Math.max(map.getZoom(), 17), duration:900, essential:true });
+        }
       }
       if (traceActive) {
         const last = trail[trail.length - 1];
@@ -714,11 +721,60 @@ function renderSheetMeasure(card) {
   card.appendChild(acc);
 
   const actions = document.createElement('div'); actions.className = 'actions';
+  const share = document.createElement('button');
+  share.className = 'primary';
+  share.textContent = 'مشاركة';
+  share.onclick = () => sharePoint();
   const clear = document.createElement('button');
   clear.textContent = 'مسح';
   clear.onclick = () => { measureTarget = null; measureLabel = null; updateMeasure(); renderSheet(); };
+  actions.appendChild(share);
   actions.appendChild(clear);
   card.appendChild(actions);
+}
+
+// ====================== Share / receive a point via URL ======================
+async function sharePoint() {
+  if (!measureTarget) return;
+  let name = measureLabel;
+  if (!name) {
+    const input = prompt('اسم النقطة (اختياري):', '');
+    if (input === null) return;          // user cancelled
+    name = input.trim();
+  }
+  const [lng, lat] = measureTarget;
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('p', `${lng.toFixed(6)},${lat.toFixed(6)}`);
+  if (name) url.searchParams.set('n', name);
+  const shareUrl = url.toString();
+  const shareText = name ? `📍 ${name}` : '📍 نقطة على ساحة التفويج';
+
+  if (navigator.share) {
+    try { await navigator.share({ title:'ساحة التفويج', text:shareText, url:shareUrl }); }
+    catch (e) { /* user dismissed */ }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(shareUrl);
+    toast('تم نسخ الرابط');
+  } catch {
+    toast(shareUrl, 6000);
+  }
+}
+
+function applyShareParams() {
+  const params = new URLSearchParams(window.location.search);
+  const p = params.get('p');
+  if (!p) return;
+  const parts = p.split(',').map(s => parseFloat(s.trim()));
+  if (parts.length !== 2 || parts.some(isNaN)) return;
+  measureTarget = parts;
+  measureLabel = (params.get('n') || 'نقطة مشتركة').slice(0, 80);
+  setMode('measure');
+  updateMeasure();
+  map.flyTo({ center: measureTarget, zoom:17.5, duration:900, essential:true });
+  toast('استلمت نقطة مشتركة — القياس من موقعك جارٍ');
 }
 
 function updateMeasure() {
